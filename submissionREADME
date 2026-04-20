@@ -1,0 +1,313 @@
+# 🧠 Multi-Container Runtime — OS-Jackfruit
+
+---
+
+## 👥 Team Information
+
+| Name             | SRN           |
+| ---------------- | ------------- |
+| Gyaan S Shetty   | PES1UG24CS178 |
+| Hardhick M Gowda | PES1UG24CS179 |
+
+---
+
+# 🔷 Build, Load, and Run Instructions
+
+## 🔹 Prerequisites
+
+```bash
+sudo apt update
+sudo apt install -y build-essential linux-headers-$(uname -r)
+```
+
+---
+
+## 🔹 Build
+
+```bash
+cd boilerplate
+make
+```
+
+---
+
+## 🔹 Prepare Root Filesystems
+
+```bash
+mkdir -p rootfs-base
+wget https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86_64/alpine-minirootfs-3.20.3-x86_64.tar.gz
+tar -xzf alpine-minirootfs-3.20.3-x86_64.tar.gz -C rootfs-base
+
+cp -a ./rootfs-base ./rootfs-alpha
+cp -a ./rootfs-base ./rootfs-beta
+
+# Copy workload binaries
+cp cpu_hog memory_hog io_pulse ./rootfs-alpha/
+cp cpu_hog memory_hog io_pulse ./rootfs-beta/
+```
+
+---
+
+## 🔹 Load Kernel Module
+
+```bash
+sudo insmod monitor.ko
+ls -l /dev/container_monitor
+sudo dmesg | tail -3
+```
+
+---
+
+## 🔹 Start Supervisor (Terminal 1)
+
+```bash
+sudo ./engine supervisor ./rootfs-base
+```
+
+---
+
+## 🔹 Use CLI (Terminal 2)
+
+### Start Containers
+
+```bash
+sudo ./engine start alpha ./rootfs-alpha /cpu_hog --soft-mib 48 --hard-mib 80
+sudo ./engine start beta  ./rootfs-beta  /cpu_hog --soft-mib 64 --hard-mib 96
+```
+
+---
+
+### Run Container (Foreground)
+
+```bash
+sudo ./engine run alpha ./rootfs-alpha /memory_hog --soft-mib 20 --hard-mib 64
+```
+
+---
+
+### List Containers
+
+```bash
+sudo ./engine ps
+```
+
+---
+
+### View Logs
+
+```bash
+sudo ./engine logs alpha
+```
+
+---
+
+### Stop Container
+
+```bash
+sudo ./engine stop alpha
+```
+
+---
+
+## 🔹 Cleanup
+
+```bash
+# Stop supervisor (Ctrl+C)
+sudo rmmod monitor
+sudo dmesg | tail -5
+make clean
+```
+
+---
+
+# 🔷 Demo Screenshots
+
+---
+
+## 1️⃣ Multi-container Supervision
+
+```bash
+sudo ./engine start alpha ./rootfs-alpha /cpu_hog --nice 0
+sudo ./engine start beta  ./rootfs-beta  /cpu_hog --nice 10
+sudo ./engine ps
+```
+
+![Multi-container](https://github.com/user-attachments/assets/c06cacfe-7a13-445e-9c49-6f38dad7d3ec)
+
+---
+
+## 2️⃣ Metadata Tracking
+
+```bash
+sudo ./engine ps
+```
+
+![Metadata](https://github.com/user-attachments/assets/0ae13a7a-016c-452e-8c42-efc374ebf0aa)
+
+---
+
+## 3️⃣ Logging System
+
+```bash
+sudo ./engine start alpha ./rootfs-alpha /cpu_hog
+sleep 3
+sudo ./engine logs alpha
+```
+
+![Logs](https://github.com/user-attachments/assets/252dded0-225e-440b-b45f-138cb2ad8f7d)
+
+---
+
+## 4️⃣ CLI and IPC
+
+```bash
+sudo ./engine start alpha ./rootfs-alpha /cpu_hog --soft-mib 48 --hard-mib 80
+sudo ./engine stop alpha
+sudo ./engine ps
+```
+
+![IPC](https://github.com/user-attachments/assets/41133b40-0d44-4c6e-a539-454e54818a33)
+
+---
+
+## 5️⃣ Soft-limit Warning
+
+```bash
+sudo ./engine run alpha ./rootfs-alpha /memory_hog --soft-mib 20 --hard-mib 64
+sudo dmesg | grep "SOFT LIMIT"
+```
+
+![Soft Limit](https://github.com/user-attachments/assets/422f800f-8a12-4d9b-a412-73aa0134b41a)
+
+---
+
+## 6️⃣ Hard-limit Enforcement
+
+```bash
+sudo ./engine run alpha ./rootfs-alpha /memory_hog --soft-mib 10 --hard-mib 20
+sudo dmesg | grep container_monitor | tail -5
+sudo ./engine ps
+```
+
+![Hard Limit](https://github.com/user-attachments/assets/0b3f391c-886e-47fb-a9eb-c08396a8a6cb)
+
+---
+
+## 7️⃣ Scheduling Experiment
+
+```bash
+sudo ./engine start alpha ./rootfs-alpha /cpu_hog --nice 0
+sudo ./engine start beta  ./rootfs-beta  /cpu_hog --nice 10
+top -d 1 -n 8
+```
+
+![Scheduling1](https://github.com/user-attachments/assets/e718e312-cf33-4edb-88be-c2681bf32eda)
+![Scheduling2](https://github.com/user-attachments/assets/14f880f1-66a3-493c-9329-1cd7b5358d8d)
+
+---
+
+## 8️⃣ Clean Teardown
+
+```bash
+ps aux | grep defunct
+sudo rmmod monitor
+sudo dmesg | tail -3
+```
+
+![Cleanup](https://github.com/user-attachments/assets/f61a6b63-ab84-4361-aa4c-72a44ef06b2f)
+
+---
+
+# 🔷 Engineering Overview
+
+## 🔹 Isolation
+
+* Implemented using Linux namespaces:
+
+  * PID namespace → process isolation
+  * UTS namespace → hostname isolation
+  * Mount namespace → filesystem isolation
+* `chroot` ensures container sees only its rootfs
+
+---
+
+## 🔹 Supervisor
+
+* Central process managing all containers
+* Handles:
+
+  * start / stop
+  * metadata tracking
+  * signal handling
+* Ensures no zombie processes
+
+---
+
+## 🔹 IPC & Logging
+
+* CLI ↔ Supervisor → UNIX socket (control path)
+* Container output → pipes → logging system
+* Bounded buffer ensures:
+
+  * no data loss
+  * no race conditions
+
+---
+
+## 🔹 Memory Management
+
+* Implemented in kernel module
+* Uses RSS (Resident Set Size)
+
+| Limit Type | Action  |
+| ---------- | ------- |
+| Soft       | Warning |
+| Hard       | SIGKILL |
+
+---
+
+## 🔹 Scheduling
+
+* Controlled using `nice` values
+* Lower nice → higher priority
+
+---
+
+# 🔷 Design Choices
+
+| Component            | Choice         | Reason                 |
+| -------------------- | -------------- | ---------------------- |
+| Filesystem isolation | chroot         | Simpler implementation |
+| Supervisor           | Single process | Centralized control    |
+| Logging              | Pipes + buffer | Efficient & safe       |
+| IPC                  | UNIX socket    | Reliable communication |
+| Scheduling           | nice values    | Easy to demonstrate    |
+
+---
+
+# 🔷 Scheduler Results
+
+| Container | Nice (NI) | CPU Usage |
+| --------- | --------- | --------- |
+| alpha     | 0         | ~100%     |
+| beta      | 10        | ~60%      |
+
+### Conclusion:
+
+Lower nice value results in higher CPU allocation by the scheduler.
+
+---
+
+# 🔷 Final Conclusion
+
+This project successfully demonstrates:
+
+* Multi-container runtime using Linux namespaces
+* Supervisor-based lifecycle management
+* Concurrent logging using bounded-buffer synchronization
+* Kernel-level memory enforcement
+* Real-world scheduling behavior analysis
+
+It closely mirrors real container systems like Docker while exposing core OS concepts such as process isolation, IPC, synchronization, and kernel-user interaction.
+
+---
